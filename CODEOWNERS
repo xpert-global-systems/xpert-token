@@ -1,0 +1,31 @@
+# CODEOWNERS for XPERT Token
+# Defines required reviewers for pull requests
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners
+* @xpert-org/smart-contracts
+
+# Token contract
+src/XpertToken.sol @xpert-org/smart-contracts @xpert-org/security
+
+# Fund mechanics
+src/FounderVault.sol @xpert-org/smart-contracts @xpert-org/security @xpert-org/compliance
+
+# Governance
+src/GovernanceDAO.sol @xpert-org/smart-contracts @xpert-org/governance
+
+# Interfaces
+src/interfaces/ @xpert-org/smart-contracts
+
+# Tests
+test/ @xpert-org/smart-contracts
+
+# Deployment & configuration
+.github/workflows/ @xpert-org/devops
+scripts/ @xpert-org/devops
+Dockerfile @xpert-org/devops
+
+# Documentation
+README.md @xpert-org/smart-contracts
+CONTRIBUTING.md @xpert-org/smart-contracts
+CONTRACT_ADDRESSES.md @xpert-org/governance
