@@ -1,4 +1,4 @@
-name: Solidity CI
+name: Solidity CI Pipeline
 
 on:
   push:
@@ -6,24 +6,44 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
+    name: Run Hardhat Tests
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # Step 2: Setup Node.js environment
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '16'
 
+      # Step 3: Install project dependencies
       - name: Install dependencies
         run: npm ci
 
+      # Step 4: Run Hardhat tests
       - name: Run Hardhat Tests
         run: npx hardhat test
 
-      - name: Static Analysis with Slither
+  security-analysis:
+    name: Static Analysis with Slither
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Install required dependencies
+      - name: Install Slither
+        run: |
+          sudo apt update \
+          && sudo apt install -y slither-tools
+
+      # Step 2: Run Slither
+      - name: Run Slither Analysis
         run: slither .
