@@ -1,445 +1,196 @@
 # Contributing to XPERT Token
 
-We welcome contributions that strengthen smart contract security, governance, and institutional credibility.
+Thank you for contributing to XPERT Token, the smart-contract infrastructure for the XPERT Global Systems ecosystem.
 
----
+This repository contains experimental blockchain software. Contributions must prioritize correctness, security, reproducibility, and clear documentation over speed of delivery.
 
-## 🎯 Contribution Philosophy
+## Contribution Principles
 
-**Every contribution must pass these filters:**
+Every contribution should be:
 
-1. **Is it secure?** — Code audited, edge cases handled, no known vulnerabilities
-2. **Is it clear?** — Comments explain logic, governance decisions documented, audit trail preserved
-3. **Does it maintain trust?** — No hidden mechanisms, transparent fee structures, honest parameter changes
+1. **Secure** — access control, accounting, failure paths, and external calls are tested.
+2. **Clear** — behavior, assumptions, governance decisions, and deployment impact are documented.
+3. **Auditable** — important state changes emit events and claims are supported by reproducible evidence.
+4. **Risk-aware** — no hidden mechanisms, unsupported performance claims, guaranteed-return language, or fabricated audit/deployment status.
 
-We optimize for **security over speed, transparency over features**.
+Security and transparency take priority over feature velocity.
 
----
+## Before You Start
 
-## 📋 Before You Start
+1. Read the README and the relevant documentation in `docs/`.
+2. Search existing issues and pull requests before starting duplicate work.
+3. Open an issue before making material changes to contracts, tokenomics, fees, governance, risk parameters, or deployment procedures.
+4. Never commit private keys, seed phrases, API tokens, RPC credentials, or populated environment files.
+5. Use Base testnet for development unless a maintainer explicitly authorizes another network.
 
-### Check Existing Work
+## Tooling and Local Setup
 
-```bash
-# Search for related issues or PRs
-git log --oneline | grep -i "your-topic"
-gh issue list --search "your topic"
-```
+Use **pnpm** for all TypeScript and JavaScript dependencies. Do not add npm or yarn lockfiles.
 
-### Discuss Major Changes
+Required tooling:
 
-Before spending significant time:
-
-1. **Open an issue** to discuss the change
-2. **Get feedback** from maintainers (@xpert-org/smart-contracts)
-3. **Design** the solution collaboratively
-4. **Security review** before implementation
-
-This prevents wasted effort and ensures alignment.
-
----
-
-## 🔧 Development Workflow
-
-### 1. Fork & Clone
+- Node.js 18 or newer
+- pnpm
+- Foundry for Solidity compilation and testing where configured
+- Base testnet credentials for deployment tests only
 
 ```bash
 git clone https://github.com/xpert-global-systems/xpert-token.git
 cd xpert-token
-git checkout -b feature/your-feature-name
+pnpm install
+cp .env.example .env
 ```
 
-### 2. Setup Environment
+Keep `.env` untracked and use testnet credentials only.
 
-**Using Foundry (recommended):**
+Run the checks supported by the repository:
 
 ```bash
-# Install Foundry
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
+pnpm run compile
+pnpm test
+pnpm run test:coverage
+pnpm run test:gas
+```
 
-# Install dependencies
+For Foundry-based projects:
+
+```bash
 forge install
-
-# Copy environment
-cp .env.example .env
-# Edit .env with your private key, RPC URLs
-```
-
-**Using Hardhat (alternative):**
-
-```bash
-npm install
-cp .env.example .env
-# Edit .env
-```
-
-### 3. Development
-
-**Code Standards:**
-- Follow Solidity style guide (see `.solhint.json`)
-- Use type-safe Solidity 0.8.20+
-- Add NatSpec comments to all public functions
-- Include event logging for all state changes
-- No use of deprecated OpenZeppelin functions
-
-**File Structure:**
-```
-src/
-├── XpertToken.sol          # ERC-20 token
-├── FounderVault.sol        # Fund mechanics
-├── GovernanceDAO.sol       # Multi-sig governance
-└── interfaces/
-    ├── IERC20.sol
-    └── IVault.sol
-
-test/
-├── XpertToken.test.sol
-├── FounderVault.test.sol
-├── GovernanceDAO.test.sol
-└── integration/
-    └── EndToEnd.test.sol
-```
-
-### 4. Testing
-
-**All PRs must include tests.**
-
-```bash
-# Run all tests (Foundry)
-forge test -v
-
-# Run with gas report
+forge build
+forge test -vvv
 forge test --gas-report
-
-# Run specific test
-forge test --match testFunctionName -v
-
-# Run with coverage (if available)
 forge coverage
-
-# Hardhat alternative
-npm run test
-npm run test:coverage
 ```
 
-**Test File Naming:**
-- Contract tests: `ContractName.test.sol`
-- Integration tests: `integration/`
-- Fuzz tests: Include `fuzz` in name
+If a command is not defined by the repository configuration, do not claim that it passed. Report the unavailable command and the checks you actually ran.
 
-**Example Test:**
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+## Branches and Commits
 
-import "forge-std/Test.sol";
-import "../src/XpertToken.sol";
-
-contract XpertTokenTest is Test {
-    XpertToken token;
-    address user = address(0x123);
-    
-    function setUp() public {
-        token = new XpertToken(1_000_000_000e18);
-    }
-    
-    function testTransfer() public {
-        token.transfer(user, 100e18);
-        assertEq(token.balanceOf(user), 100e18);
-    }
-    
-    function testMintOnlyGovernance() public {
-        vm.prank(user);
-        vm.expectRevert();
-        token.governanceMint(user, 100e18);
-    }
-    
-    function testBurn() public {
-        token.burn(100e18);
-        assertEq(token.totalSupply(), 1_000_000_000e18 - 100e18);
-    }
-}
-```
-
-### 5. Code Quality
+Create a focused branch from the default branch:
 
 ```bash
-# Lint with solhint (Foundry)
-solhint 'src/**/*.sol'
-
-# Format with prettier
-prettier --write 'src/**/*.sol' 'test/**/*.sol'
-
-# Hardhat: lint with hardhat-ethers
-npm run lint
+git switch -c feat/short-description
 ```
 
-### 6. Security Checks
+Use conventional commits:
 
-```bash
-# Use Slither for static analysis
-slither . --json slither-report.json
+- `feat:` — new functionality
+- `fix:` — defect correction or vulnerability patch
+- `test:` — tests only
+- `docs:` — documentation only
+- `refactor:` — behavior-preserving restructuring
+- `security:` — security hardening
+- `chore:` — tooling or dependency maintenance
 
-# Use Echidna for fuzzing (advanced)
-echidna . --config echidna.yaml
+Keep commits small and avoid mixing unrelated formatting changes with contract behavior changes.
 
-# Manual review checklist
-# - No reentrancy vulnerabilities
-# - No unchecked math (use SafeMath if needed)
-# - All public functions have access control
-# - State changes emit events
-# - No delegate calls to untrusted contracts
-```
+## Smart-Contract Change Requirements
 
-### 7. Commit Guidelines
+Every contract change must include:
 
-**Use conventional commits:**
+- Unit tests for successful and failing paths
+- Access-control tests for privileged functions
+- Boundary tests for zero values, maximum values, fee limits, rounding, and decimals
+- Reentrancy and external-call review where applicable
+- Events for user- or operator-relevant state changes
+- NatSpec for public and external interfaces
+- Storage-layout or upgradeability impact notes, where applicable
+- Updated documentation for changed functions, parameters, roles, and permissions
+- Gas comparison when claiming an optimization
 
-```
-<type>(<scope>): <subject>
+Do not assume an OpenZeppelin import makes the surrounding system safe. Review integration logic, authorization, accounting, configuration limits, and external calls.
 
-<body>
+## Governance and Risk Changes
 
-<footer>
-```
+Changes affecting minting, burning, vault deposits or withdrawals, fees, drawdown limits, pause behavior, signers, or treasury allocation require maintainer review before merge.
 
-**Types:**
-- `feat:` New contract or function
-- `fix:` Bug fix or vulnerability patch
-- `docs:` Documentation
-- `refactor:` Code refactoring
-- `test:` Test additions
-- `chore:` Dependencies, tooling
+The pull request must explain:
 
-**Examples:**
-```
-feat(vault): implement performance fee collection
+- Who can call the changed function
+- Which values are permitted
+- Whether the change is reversible
+- What happens during an emergency
+- How the change is tested
+- Whether deployment, migration, or multisig procedures must change
 
-Add governanceCollectPerformanceFee function to Founder Vault.
-- Calculates 20% of profits since last collection
-- Updates performance fee high water mark
-- Emits PerformanceFeeCollected event
-- Multi-sig governance approval required
+Do not describe a parameter as governance-controlled unless the deployed implementation actually enforces that control.
 
-Closes #142
+## Testing and Security Evidence
 
-fix(token): prevent overflow in mint function
+Before opening a pull request:
 
-Add total supply cap check before minting.
-- Revert if mint would exceed 1B token cap
-- Add unit test for cap enforcement
+1. Run the relevant compile and test commands.
+2. Run coverage for contract behavior changes.
+3. Run fuzz or invariant tests for accounting and authorization logic where available.
+4. Run static analysis where configured, such as Slither.
+5. Review the diff for secrets, placeholder addresses, incorrect network IDs, and production configuration.
+6. Record the exact commands and results in the pull request.
 
-Closes #156
-```
+Do not claim that an audit, deployment, verification, or test passed without reproducible evidence in the repository or an authoritative linked source.
 
-### 8. Push & Create PR
+## Pull Request Checklist
 
-```bash
-git push origin feature/your-feature-name
-```
+- [ ] The change has a clear, narrow purpose.
+- [ ] An issue exists for material protocol or contract changes.
+- [ ] `pnpm install` and relevant `pnpm` checks pass.
+- [ ] Foundry checks pass when applicable.
+- [ ] Tests cover success, failure, authorization, and boundary cases.
+- [ ] No secrets or production credentials are included.
+- [ ] Contract addresses and network labels are accurate.
+- [ ] Public interfaces and documentation are updated.
+- [ ] Gas, storage, and security implications are documented.
+- [ ] Deployment and rollback considerations are documented.
+- [ ] The pull request makes no unsupported return, safety, or performance guarantees.
 
-Then create a pull request with the PR template.
-
----
-
-## 📝 Pull Request Guidelines
-
-### PR Title Format
-
-Follows conventional commits:
-```
-feat(vault): implement withdrawal mechanism
-fix(governance): enforce multi-sig approval
-test(token): add fuzz tests for transfer
-```
-
-### PR Description
-
-Use the PR template:
+Use this structure in the pull request description:
 
 ```markdown
-## What does this PR do?
+## Summary
 
-Brief description of contract changes.
+## Risk and security impact
 
-## Why?
+## Tests run
 
-Context or motivation.
+## Deployment or migration steps
 
-## Related Issues
+## Rollback or emergency considerations
 
-Closes #123
-
-## Testing
-
-- [ ] Unit tests pass
-- [ ] Integration tests pass
-- [ ] Gas report reviewed
-- [ ] Slither analysis clean
-- [ ] No breaking changes
-
-## Security Review
-
-- [ ] No reentrancy issues
-- [ ] Access controls correct
-- [ ] Math safe from overflow
-- [ ] Events emitted for state changes
-
-## Gas Impact
-
-[Include gas report]
+## Documentation updated
 ```
 
-### Review Process
+## Security Reports
 
-1. **Automated Checks**
-   - Tests pass (GitHub Actions)
-   - Linting passes
-   - Slither analysis runs
-   - Gas report generated
+Do not disclose an undisclosed vulnerability in a public issue or pull request. Use the repository's private security contact or GitHub's private vulnerability reporting channel when available.
 
-2. **Manual Review**
-   - Smart contract team review (@xpert-org/smart-contracts)
-   - Security team review (@xpert-org/security)
-   - Governance review for parameter changes (@xpert-org/governance)
+Include:
 
-3. **Approval Requirements**
-   - Logic: 2 smart contract team approvals
-   - Security: 1 security team approval
-   - Governance: 1 governance approval (if parameters change)
+- A concise description
+- Affected contract, function, and commit
+- Reproduction steps or proof of concept
+- Impact assessment
+- Suggested mitigation, if known
 
-4. **Merge**
-   - Squash commits
-   - Use PR title as commit message
-   - Delete branch after merge
+Do not exploit a vulnerability beyond what is necessary to demonstrate it, and do not move real funds during testing.
 
----
+## Documentation Standards
 
-## 🔍 Code Review Checklist
+Documentation must:
 
-When reviewing PRs, check:
+- Distinguish implemented behavior from planned behavior
+- Identify testnet versus mainnet deployments
+- Use exact contract addresses only after verification
+- State assumptions, limits, fees, and privileged roles plainly
+- Include dates and commit or deployment references where relevant
+- Avoid hype, guaranteed outcomes, or unsupported performance claims
 
-- ✅ **Security**
-  - No known vulnerabilities
-  - Reentrancy guards present
-  - Access controls enforced
-  - Math is overflow-safe
-  - All state changes emit events
+Retain the project risk disclosure: smart contracts carry risk, users may lose capital, and past performance does not guarantee future results.
 
-- ✅ **Code Quality**
-  - Clear comments and NatSpec
-  - No hardcoded values
-  - Proper error handling
-  - Consistent style
+## Review and Merge
 
-- ✅ **Testing**
-  - Unit tests comprehensive
-  - Edge cases covered
-  - Integration tests pass
-  - Gas optimization reasonable
+Maintainers may request additional tests, threat-model review, deployment rehearsal, or multisig approval. Contract and protocol changes should not be merged solely because they compile or pass a narrow unit test.
 
-- ✅ **Governance**
-  - Multi-sig approval required where needed
-  - Parameter changes transparent
-  - Event logging complete
-  - Audit trail preserved
+A change is ready to merge when the implementation, tests, documentation, security impact, and deployment plan are all reviewable.
 
----
+## License
 
-## 🚀 Contribution Areas
-
-### High Priority
-
-1. **Fund Mechanics**
-   - Deposit/withdrawal improvements
-   - Fee distribution optimization
-   - Risk parameter updates
-
-2. **Governance**
-   - Enhanced multi-sig logic
-   - Parameter change voting
-   - Emergency pause mechanism
-
-3. **Security**
-   - Audit findings remediation
-   - Vulnerability patches
-   - Edge case handling
-
-### Medium Priority
-
-1. **Optimization**
-   - Gas efficiency improvements
-   - Storage layout optimization
-   - Batch operations
-
-2. **Features**
-   - Staking mechanics
-   - Reward distribution
-   - Advanced governance
-
----
-
-## 🐛 Bug Reports
-
-### Report Process
-
-1. **Check existing issues** — Search first
-2. **Create detailed issue** using template
-3. **Include reproduction steps**
-4. **Severity assessment**
-
-### What to Include
-
-```markdown
-## Vulnerability Type
-
-- [ ] Reentrancy
-- [ ] Access control
-- [ ] Overflow/underflow
-- [ ] Logic error
-- [ ] Other: [explain]
-
-## Description
-
-Clear description of the issue.
-
-## Proof of Concept
-
-[Code or detailed steps to reproduce]
-
-## Impact
-
-How could this be exploited?
-
-## Recommended Fix
-
-How should it be fixed?
-```
-
----
-
-## 📚 Resources
-
-- **Docs:** https://docs.slipmint.io/token
-- **OpenZeppelin Docs:** https://docs.openzeppelin.com/
-- **Solidity Best Practices:** https://solidity.readthedocs.io/
-- **Foundry Book:** https://book.getfoundry.sh/
-
----
-
-## ❓ Questions?
-
-- **GitHub Issues:** Ask in discussion
-- **Discord:** https://discord.gg/xpert-global
-- **Email:** support@slipmint.io
-
----
-
-## 📄 License
-
-By contributing, you agree your code will be MIT licensed.
-
----
-
-**Thank you for strengthening XPERT Token security! 🙏**
+By contributing, you agree that your contribution will be licensed under the repository's MIT License.
