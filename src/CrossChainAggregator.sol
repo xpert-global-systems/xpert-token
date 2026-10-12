@@ -2,22 +2,22 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title CrossChainAggregator
- * @notice A single EVM wallet contract that can receive ETH, Base assets, ERC-20s,
- *         and Bitcoin represented as wrapped BTC tokens (wBTC, cbBTC, tBTC, etc.)
- *         across supported chains.
- *
- * @dev This is designed for a unified receiving address on EVM-compatible networks.
- *      BTC itself is not directly native to EVM, so BTC support is via wrapped BTC
- *      assets or bridge-produced BTC representations on Ethereum/Base/etc.
+ * @notice Unified EVM receiving wallet supporting native assets and wrapped cross-chain tokens.
+ * @dev Compatible with OpenZeppelin v5.x. Supports ETH, Base, Polygon, Arbitrum, Optimism,
+ *      and any ERC-20 token including wrapped Bitcoin (wBTC, cbBTC, tBTC).
  */
 contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
+    using SafeERC20 for IERC20;
+
     uint256 public constant BASIS_POINTS = 10000;
+    uint256 public constant MAX_HISTORY_BATCH = 50; // Pagination limit
 
     struct DepositRecord {
         address token;
@@ -39,8 +39,10 @@ contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
     mapping(address => mapping(address => uint256)) public balances; // user => token => amount
     mapping(address => uint256) public nativeBalances; // user => ETH/native amount
     mapping(address => DepositRecord[]) public depositHistory;
+    mapping(address => uint256) public depositCount; // Track count for pagination
 
-    uint256 public feeBps = 50; // 0.5%
+    uint256 public feeBps = 50; // 0.5% default
+    uint256 public nativeFeeBps = 50; // 0.5% for native ETH (matches ERC-20 fee)
     address public feeRecipient;
 
     event TokenWhitelisted(address indexed token, string label);
@@ -63,12 +65,17 @@ contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
         bool isNative
     );
     event FeeCollected(address indexed token, uint256 amount);
+    event FeeRateUpdated(uint256 newErcFeeBps, uint256 newNativeFeeBps);
 
-    constructor(address _feeRecipient) {
+    /**
+     * @dev Constructor initializes the contract with default chains and fee recipient.
+     * @param _feeRecipient Address to receive protocol fees
+     */
+    constructor(address _feeRecipient) Ownable(msg.sender) {
         require(_feeRecipient != address(0), "invalid fee recipient");
         feeRecipient = _feeRecipient;
 
-        // Common EVM chain configuration
+        // Initialize common EVM chains
         chainInfo[1] = ChainInfo({ chainId: 1, name: "Ethereum", active: true });
         chainInfo[8453] = ChainInfo({ chainId: 8453, name: "Base", active: true });
         chainInfo[137] = ChainInfo({ chainId: 137, name: "Polygon", active: true });
@@ -76,12 +83,22 @@ contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
         chainInfo[10] = ChainInfo({ chainId: 10, name: "Optimism", active: true });
     }
 
-    receive() external payable {
-        nativeBalances[msg.sender] += msg.value;
+    /**
+     * @dev Receive native ETH with fee deduction and event logging.
+     */
+    receive() external payable whenNotPaused {
+        require(msg.value > 0, "amount must be > 0");
+
+        uint256 fee = (msg.value * nativeFeeBps) / BASIS_POINTS;
+        uint256 netAmount = msg.value - fee;
+
+        nativeBalances[msg.sender] += netAmount;
+        depositCount[msg.sender]++;
+
         depositHistory[msg.sender].push(
             DepositRecord({
                 token: address(0),
-                amount: msg.value,
+                amount: netAmount,
                 chainId: block.chainid,
                 txHash: "native-transfer",
                 timestamp: block.timestamp,
@@ -89,51 +106,81 @@ contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
             })
         );
 
-        emit Deposit(
-            msg.sender,
-            address(0),
-            msg.value,
-            block.chainid,
-            "native-transfer",
-            block.timestamp,
-            true
-        );
+        if (fee > 0) {
+            (bool ok, ) = payable(feeRecipient).call{ value: fee }("");
+            require(ok, "fee transfer failed");
+            emit FeeCollected(address(0), fee);
+        }
+
+        emit Deposit(msg.sender, address(0), netAmount, block.chainid, "native-transfer", block.timestamp, true);
     }
 
+    /**
+     * @dev Whitelist an ERC-20 token for deposits.
+     */
     function whitelistToken(address token, string calldata label) external onlyOwner {
         require(token != address(0), "invalid token");
         supportedTokens[token] = true;
         emit TokenWhitelisted(token, label);
     }
 
+    /**
+     * @dev Remove a token from whitelist.
+     */
     function removeToken(address token) external onlyOwner {
         supportedTokens[token] = false;
         emit TokenRemoved(token);
     }
 
+    /**
+     * @dev Configure a blockchain network.
+     */
     function configureChain(uint256 chainId, string calldata name, bool active) external onlyOwner {
+        require(chainId != 0, "invalid chain id");
         chainInfo[chainId] = ChainInfo({ chainId: chainId, name: name, active: active });
         emit ChainConfigured(chainId, name, active);
     }
 
-    function setFeeBps(uint256 _feeBps) external onlyOwner {
-        require(_feeBps <= 1000, "fee too high"); // max 10%
-        feeBps = _feeBps;
+    /**
+     * @dev Set ERC-20 and native fee rates (in basis points).
+     */
+    function setFeeBps(uint256 _ercFeeBps, uint256 _nativeFeeBps) external onlyOwner {
+        require(_ercFeeBps <= 1000, "erc fee too high"); // max 10%
+        require(_nativeFeeBps <= 1000, "native fee too high"); // max 10%
+        feeBps = _ercFeeBps;
+        nativeFeeBps = _nativeFeeBps;
+        emit FeeRateUpdated(_ercFeeBps, _nativeFeeBps);
     }
 
+    /**
+     * @dev Update fee recipient address.
+     */
     function setFeeRecipient(address _feeRecipient) external onlyOwner {
         require(_feeRecipient != address(0), "invalid fee recipient");
         feeRecipient = _feeRecipient;
     }
 
+    /**
+     * @dev Pause all deposits and withdrawals.
+     */
     function pause() external onlyOwner {
         _pause();
     }
 
+    /**
+     * @dev Resume deposits and withdrawals.
+     */
     function unpause() external onlyOwner {
         _unpause();
     }
 
+    /**
+     * @dev Deposit ERC-20 tokens with fee deduction.
+     * @param token ERC-20 token address (supports non-standard tokens via SafeERC20)
+     * @param amount Amount to deposit
+     * @param chainId Source chain ID
+     * @param txHash Transaction hash for cross-chain verification
+     */
     function depositERC20(
         address token,
         uint256 amount,
@@ -143,13 +190,17 @@ contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
         require(supportedTokens[token], "token not allowed");
         require(amount > 0, "amount must be > 0");
         require(chainInfo[chainId].active, "chain not active");
+        require(bytes(txHash).length > 0, "tx hash required");
 
         uint256 fee = (amount * feeBps) / BASIS_POINTS;
         uint256 netAmount = amount - fee;
 
-        require(IERC20(token).transferFrom(msg.sender, address(this), amount), "transferFrom failed");
+        // SafeERC20 handles non-standard tokens like USDT
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         balances[msg.sender][token] += netAmount;
+        depositCount[msg.sender]++;
+
         depositHistory[msg.sender].push(
             DepositRecord({
                 token: token,
@@ -162,24 +213,30 @@ contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
         );
 
         if (fee > 0) {
-            require(IERC20(token).transfer(feeRecipient, fee), "fee transfer failed");
+            IERC20(token).safeTransfer(feeRecipient, fee);
             emit FeeCollected(token, fee);
         }
 
         emit Deposit(msg.sender, token, netAmount, chainId, txHash, block.timestamp, false);
     }
 
+    /**
+     * @dev Withdraw ERC-20 tokens.
+     */
     function withdrawERC20(address token, uint256 amount) external whenNotPaused nonReentrant {
         require(supportedTokens[token], "token not allowed");
         require(amount > 0, "amount must be > 0");
         require(balances[msg.sender][token] >= amount, "insufficient balance");
 
         balances[msg.sender][token] -= amount;
-        require(IERC20(token).transfer(msg.sender, amount), "withdraw failed");
+        IERC20(token).safeTransfer(msg.sender, amount);
 
         emit Withdraw(msg.sender, token, amount, block.timestamp, false);
     }
 
+    /**
+     * @dev Withdraw native ETH.
+     */
     function withdrawNative(uint256 amount) external whenNotPaused nonReentrant {
         require(amount > 0, "amount must be > 0");
         require(nativeBalances[msg.sender] >= amount, "insufficient native balance");
@@ -191,36 +248,76 @@ contract CrossChainAggregator is Ownable, ReentrancyGuard, Pausable {
         emit Withdraw(msg.sender, address(0), amount, block.timestamp, true);
     }
 
+    /**
+     * @dev Get ERC-20 token balance for user.
+     */
     function getBalance(address user, address token) external view returns (uint256) {
         return balances[user][token];
     }
 
+    /**
+     * @dev Get native ETH balance for user.
+     */
     function getNativeBalance(address user) external view returns (uint256) {
         return nativeBalances[user];
     }
 
+    /**
+     * @dev Get total deposit count for user (for pagination).
+     */
+    function getDepositCount(address user) external view returns (uint256) {
+        return depositCount[user];
+    }
+
+    /**
+     * @dev Get paginated deposit history to prevent gas limits.
+     * @param user User address
+     * @param offset Starting index
+     * @param limit Number of records to return (capped at MAX_HISTORY_BATCH)
+     */
+    function getDepositHistoryPaginated(
+        address user,
+        uint256 offset,
+        uint256 limit
+    ) external view returns (DepositRecord[] memory) {
+        require(limit <= MAX_HISTORY_BATCH, "limit exceeds max batch size");
+        require(offset < depositHistory[user].length, "offset out of range");
+
+        uint256 end = offset + limit;
+        if (end > depositHistory[user].length) {
+            end = depositHistory[user].length;
+        }
+
+        DepositRecord[] memory result = new DepositRecord[](end - offset);
+        for (uint256 i = offset; i < end; i++) {
+            result[i - offset] = depositHistory[user][i];
+        }
+        return result;
+    }
+
+    /**
+     * @dev Get all deposit history (caution: may hit gas limits for large histories).
+     * @param user User address
+     */
     function getDepositHistory(address user) external view returns (DepositRecord[] memory) {
         return depositHistory[user];
     }
 
+    /**
+     * @dev Emergency ERC-20 token withdrawal by owner.
+     */
     function emergencyWithdrawERC20(address token, uint256 amount) external onlyOwner {
         require(supportedTokens[token], "token not allowed");
-        require(IERC20(token).transfer(owner(), amount), "emergency transfer failed");
+        IERC20(token).safeTransfer(owner(), amount);
     }
 
+    /**
+     * @dev Emergency native ETH withdrawal by owner.
+     */
     function emergencyWithdrawNative(uint256 amount) external onlyOwner {
+        require(amount > 0, "amount must be > 0");
         require(address(this).balance >= amount, "insufficient contract balance");
         (bool ok, ) = payable(owner()).call{ value: amount }("");
         require(ok, "native emergency transfer failed");
     }
 }
-
-// NOTE ON BTC SUPPORT:
-// BTC is not natively supported on EVM chains. To support BTC in this contract, add the
-// wrapped BTC token address for the relevant network, such as:
-// - Ethereum: wBTC (0x2260FAC5E5542a773Aa44fBCfeDd86b8040F6e4C)
-// - Base: cbBTC or bridge-wrapped BTC tokens as deployed on Base
-// - Other chains: tBTC, wBTC, or equivalent bridge-backed BTC representations
-//
-// This contract supports receiving BTC-equivalent value on EVM-compatible networks by
-// whitelisting the wrapped BTC token address and then depositing via depositERC20().
